@@ -2,62 +2,99 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// Esta es la función principal para Vercel
+// --- NUEVA FUNCIÓN ---
+// Función reutilizable para obtener y analizar el HTML de CUALQUIER URL
+async function getAndAnalyzePage(url) {
+    const response = await axios.get(url, { timeout: 15000 }); // Aumentamos el timeout
+    const html = response.data;
+    const $ = cheerio.load(html);
+    const wordCount = $('body').text().trim().split(/\s+/).length; // Conteo de palabras
+    return { $, html, wordCount };
+}
+
+// --- FUNCIÓN MEJORADA: Ahora analiza también el conteo de palabras ---
+async function analyzeSatellitePage(url, pillarUrl) {
+    try {
+        const { $ } = await getAndAnalyzePage(url);
+
+        let linkToPillar = false;
+        let anchorText = null;
+        
+        $('a').each((i, link) => {
+            const href = $(link).attr('href');
+            if (href === pillarUrl) {
+                linkToPillar = true;
+                anchorText = $(link).text().trim();
+            }
+        });
+
+        const wordCount = $('body').text().trim().split(/\s+/).length;
+
+        return { url, linkToPillar, anchorText, wordCount, alerts: [] };
+    } catch (error) {
+        console.error(`Error analizando SATÉLITE ${url}:`, error.message);
+        return { url, linkToPillar: false, anchorText: null, wordCount: 0, alerts: ["No se pudo acceder o analizar la URL."] };
+    }
+}
+
+// --- NUEVA FUNCIÓN: Lógica específica para analizar la página PILAR ---
+async function analyzePillarPage(url, clusterUrls) {
+    try {
+        const { $, wordCount } = await getAndAnalyzePage(url);
+        
+        const linksToSatellites = clusterUrls.map(satelliteUrl => {
+            // Buscamos un enlace que apunte exactamente a la URL del satélite
+            const found = $(`a[href="${satelliteUrl}"]`).length > 0;
+            return { url: satelliteUrl, found };
+        });
+
+        return { url, wordCount, linksToSatellites, alerts: [] };
+    } catch (error) {
+        console.error(`Error analizando PILAR ${url}:`, error.message);
+        return { url, wordCount: 0, linksToSatellites: [], alerts: ["No se pudo acceder a la URL Pilar."] };
+    }
+}
+
+
+// --- LÓGICA PRINCIPAL ACTUALIZADA ---
 export default async function handler(req, res) {
-  // Configurar cabeceras para CORS (permitir llamadas desde tu blog)
+  // Configuración de CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  // Vercel maneja una petición 'OPTIONS' automáticamente para CORS
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
   
-  // Solo permitimos el método POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   try {
-    // En Vercel, los datos vienen en req.body directamente
     const { pillarUrl, clusterUrls } = req.body;
 
     if (!pillarUrl || !clusterUrls || clusterUrls.length === 0) {
       return res.status(400).json({ error: 'Faltan URLs para analizar.' });
     }
     
-    // --- La lógica interna de análisis es idéntica ---
-    const analyzeUrl = async (url) => {
-        try {
-            const response = await axios.get(url, { timeout: 10000 });
-            const html = response.data;
-            const $ = cheerio.load(html);
+    // Creamos una lista de todas las promesas de análisis que necesitamos ejecutar
+    const promises = [
+        analyzePillarPage(pillarUrl, clusterUrls), // Analizar la pilar
+        ...clusterUrls.map(url => analyzeSatellitePage(url, pillarUrl)) // Analizar todas las satélites
+    ];
 
-            let linksToPillar = false;
-            let anchorText = null;
-            $('a').each((i, link) => {
-                const href = $(link).attr('href');
-                if (href === pillarUrl) {
-                    linksToPillar = true;
-                    anchorText = $(link).text().trim(); // Extraemos el texto ancla
-                }
-            });
+    // Ejecutamos todas las promesas en paralelo para máxima velocidad
+    const results = await Promise.all(promises);
 
-            return { url: url, linkToPillar: linksToPillar, anchorText: anchorText, alerts: [] };
-        } catch (error) {
-            console.error(`Error analizando ${url}:`, error.message);
-            return { url: url, linkToPillar: false, anchorText: null, alerts: ["No se pudo acceder o analizar la URL."] };
-        }
-    };
-
-    const satelliteAnalysisPromises = clusterUrls.map(url => analyzeUrl(url));
-    const satellites = await Promise.all(satelliteAnalysisPromises);
+    // Separamos los resultados
+    const pillarAnalysis = results[0];
+    const satelliteAnalysis = results.slice(1);
     
-    // Devolvemos el resultado usando el objeto 'res' de Vercel
+    // Devolvemos la nueva estructura de datos enriquecida
     return res.status(200).json({
-        pillar: { url: pillarUrl },
-        satellites: satellites
+        pillarAnalysis,
+        satelliteAnalysis
     });
 
   } catch (error) {
