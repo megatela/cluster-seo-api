@@ -1,69 +1,77 @@
-// Importamos las librerías necesarias
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// --- FUNCIÓN CENTRAL DE ANÁLISIS MEJORADA ---
-// Ahora extrae título y h1, además del conteo de palabras
+// --- LISTA DE STOP WORDS EN ESPAÑOL ---
+// Palabras comunes que ignoraremos para un análisis de keywords más limpio
+const STOP_WORDS = new Set(['de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'ha', 'me', 'si', 'sin', 'sobre', 'este', 'entre', 'es', 'son', 'ser', 'qué', 'cómo', 'tu', 'tus', 'muy', 'mi', 'mis', 'han']);
+
+// --- FUNCIÓN DE ANÁLISIS DE TEXTO Y KEYWORDS ---
+function analyzeText(text) {
+    const wordCounts = {};
+    const words = text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/);
+
+    for (const word of words) {
+        if (word && !STOP_WORDS.has(word) && word.length > 2) {
+            wordCounts[word] = (wordCounts[word] || 0) + 1;
+        }
+    }
+
+    return Object.entries(wordCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10) // Tomamos el top 10 para los cálculos
+        .map(entry => entry[0]);
+}
+
+// --- FUNCIÓN CENTRAL DE ANÁLISIS (VERSIÓN FINAL) ---
 async function getAndAnalyzePage(url) {
+    const startTime = Date.now();
     const response = await axios.get(url, { timeout: 15000 });
+    const responseTime = Date.now() - startTime; // Medimos el tiempo de respuesta
+
     const html = response.data;
     const $ = cheerio.load(html);
     
-    // Extracción de datos de contenido
     const title = $('title').text().trim();
     const h1 = $('h1').first().text().trim();
-    const wordCount = $('body').text().trim().split(/\s+/).length;
-    
-    return { $, title, h1, wordCount };
+    const fullText = $('body').text().trim();
+    const wordCount = fullText.split(/\s+/).length;
+    const topKeywords = analyzeText(fullText);
+
+    return { $, title, h1, wordCount, topKeywords, responseTime };
 }
 
-// --- ANÁLISIS DE SATÉLITE MEJORADO ---
-// Ahora devuelve el título y h1 de cada satélite
-async function analyzeSatellitePage(url, pillarUrl) {
+// --- ANÁLISIS DE PÁGINAS (con todas las métricas) ---
+async function analyzePage(url, isPillar = false, pillarUrl = null, clusterUrls = []) {
     try {
-        const { $, title, h1, wordCount } = await getAndAnalyzePage(url);
-
-        let linkToPillar = false;
-        let anchorText = null;
+        const { $, title, h1, wordCount, topKeywords, responseTime } = await getAndAnalyzePage(url);
         
-        $('a').each((i, link) => {
-            const href = $(link).attr('href');
-            if (href === pillarUrl) {
+        const baseData = { url, title, h1, wordCount, topKeywords, responseTime, alerts: [] };
+
+        if (isPillar) {
+            const detectedTheme = h1 || title;
+            const linksToSatellites = clusterUrls.map(satelliteUrl => ({
+                url: satelliteUrl,
+                found: $(`a[href="${satelliteUrl}"]`).length > 0,
+            }));
+            return { ...baseData, detectedTheme, linksToSatellites };
+        } else {
+            let linkToPillar = false;
+            let anchorText = null;
+            $(`a[href="${pillarUrl}"]`).each((i, link) => {
                 linkToPillar = true;
                 anchorText = $(link).text().trim();
-            }
-        });
-
-        return { url, linkToPillar, anchorText, wordCount, title, h1, alerts: [] };
+            });
+            return { ...baseData, linkToPillar, anchorText };
+        }
     } catch (error) {
-        console.error(`Error analizando SATÉLITE ${url}:`, error.message);
-        return { url, linkToPillar: false, anchorText: null, wordCount: 0, title: '', h1: '', alerts: ["No se pudo acceder o analizar la URL."] };
+        console.error(`Error analizando ${url}:`, error.message);
+        const errorData = { url, title: '', h1: '', wordCount: 0, topKeywords: [], responseTime: -1, alerts: ["No se pudo acceder o analizar la URL."] };
+        if(isPillar) return { ...errorData, detectedTheme: 'Error', linksToSatellites: [] };
+        return { ...errorData, linkToPillar: false, anchorText: null };
     }
 }
 
-// --- ANÁLISIS DE PILAR MEJORADO ---
-// Ahora calcula el "Tema Detectado"
-async function analyzePillarPage(url, clusterUrls) {
-    try {
-        const { $, wordCount, title, h1 } = await getAndAnalyzePage(url);
-        
-        // Lógica para el "Tema Detectado": Priorizamos el H1, si no existe, usamos el Título.
-        const detectedTheme = h1 || title;
-        
-        const linksToSatellites = clusterUrls.map(satelliteUrl => {
-            const found = $(`a[href="${satelliteUrl}"]`).length > 0;
-            return { url: satelliteUrl, found };
-        });
-
-        return { url, wordCount, title, h1, detectedTheme, linksToSatellites, alerts: [] };
-    } catch (error) {
-        console.error(`Error analizando PILAR ${url}:`, error.message);
-        return { url, wordCount: 0, title: '', h1: '', detectedTheme: 'No se pudo determinar', linksToSatellites: [], alerts: ["No se pudo acceder a la URL Pilar."] };
-    }
-}
-
-
-// --- LÓGICA PRINCIPAL (Handler) - Sin cambios, solo pasa los nuevos datos ---
+// --- LÓGICA PRINCIPAL (Handler) FINAL ---
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -77,14 +85,19 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Faltan URLs para analizar.' });
     }
     
-    const promises = [
-        analyzePillarPage(pillarUrl, clusterUrls),
-        ...clusterUrls.map(url => analyzeSatellitePage(url, pillarUrl))
-    ];
+    // Analizamos todas las páginas, marcando cuál es la pilar
+    const pillarAnalysis = await analyzePage(pillarUrl, true, null, clusterUrls);
+    const satellitePromises = clusterUrls.map(url => analyzePage(url, false, pillarUrl));
+    let satelliteAnalysis = await Promise.all(satellitePromises);
 
-    const results = await Promise.all(promises);
-    const pillarAnalysis = results[0];
-    const satelliteAnalysis = results.slice(1);
+    // --- Cálculo de Relevancia Temática ---
+    const pillarKeywords = new Set(pillarAnalysis.topKeywords);
+    satelliteAnalysis = satelliteAnalysis.map(sat => {
+        if(sat.alerts.length > 0) return { ...sat, themeRelevance: 0 };
+        const commonKeywords = sat.topKeywords.filter(kw => pillarKeywords.has(kw));
+        const themeRelevance = Math.round((commonKeywords.length / Math.min(sat.topKeywords.length, 10)) * 100) || 0;
+        return { ...sat, themeRelevance };
+    });
     
     return res.status(200).json({ pillarAnalysis, satelliteAnalysis });
   } catch (error) {
