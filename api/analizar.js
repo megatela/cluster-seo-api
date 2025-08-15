@@ -2,20 +2,26 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// --- NUEVA FUNCIÓN ---
-// Función reutilizable para obtener y analizar el HTML de CUALQUIER URL
+// --- FUNCIÓN CENTRAL DE ANÁLISIS MEJORADA ---
+// Ahora extrae título y h1, además del conteo de palabras
 async function getAndAnalyzePage(url) {
-    const response = await axios.get(url, { timeout: 15000 }); // Aumentamos el timeout
+    const response = await axios.get(url, { timeout: 15000 });
     const html = response.data;
     const $ = cheerio.load(html);
-    const wordCount = $('body').text().trim().split(/\s+/).length; // Conteo de palabras
-    return { $, html, wordCount };
+    
+    // Extracción de datos de contenido
+    const title = $('title').text().trim();
+    const h1 = $('h1').first().text().trim();
+    const wordCount = $('body').text().trim().split(/\s+/).length;
+    
+    return { $, title, h1, wordCount };
 }
 
-// --- FUNCIÓN MEJORADA: Ahora analiza también el conteo de palabras ---
+// --- ANÁLISIS DE SATÉLITE MEJORADO ---
+// Ahora devuelve el título y h1 de cada satélite
 async function analyzeSatellitePage(url, pillarUrl) {
     try {
-        const { $ } = await getAndAnalyzePage(url);
+        const { $, title, h1, wordCount } = await getAndAnalyzePage(url);
 
         let linkToPillar = false;
         let anchorText = null;
@@ -28,75 +34,59 @@ async function analyzeSatellitePage(url, pillarUrl) {
             }
         });
 
-        const wordCount = $('body').text().trim().split(/\s+/).length;
-
-        return { url, linkToPillar, anchorText, wordCount, alerts: [] };
+        return { url, linkToPillar, anchorText, wordCount, title, h1, alerts: [] };
     } catch (error) {
         console.error(`Error analizando SATÉLITE ${url}:`, error.message);
-        return { url, linkToPillar: false, anchorText: null, wordCount: 0, alerts: ["No se pudo acceder o analizar la URL."] };
+        return { url, linkToPillar: false, anchorText: null, wordCount: 0, title: '', h1: '', alerts: ["No se pudo acceder o analizar la URL."] };
     }
 }
 
-// --- NUEVA FUNCIÓN: Lógica específica para analizar la página PILAR ---
+// --- ANÁLISIS DE PILAR MEJORADO ---
+// Ahora calcula el "Tema Detectado"
 async function analyzePillarPage(url, clusterUrls) {
     try {
-        const { $, wordCount } = await getAndAnalyzePage(url);
+        const { $, wordCount, title, h1 } = await getAndAnalyzePage(url);
+        
+        // Lógica para el "Tema Detectado": Priorizamos el H1, si no existe, usamos el Título.
+        const detectedTheme = h1 || title;
         
         const linksToSatellites = clusterUrls.map(satelliteUrl => {
-            // Buscamos un enlace que apunte exactamente a la URL del satélite
             const found = $(`a[href="${satelliteUrl}"]`).length > 0;
             return { url: satelliteUrl, found };
         });
 
-        return { url, wordCount, linksToSatellites, alerts: [] };
+        return { url, wordCount, title, h1, detectedTheme, linksToSatellites, alerts: [] };
     } catch (error) {
         console.error(`Error analizando PILAR ${url}:`, error.message);
-        return { url, wordCount: 0, linksToSatellites: [], alerts: ["No se pudo acceder a la URL Pilar."] };
+        return { url, wordCount: 0, title: '', h1: '', detectedTheme: 'No se pudo determinar', linksToSatellites: [], alerts: ["No se pudo acceder a la URL Pilar."] };
     }
 }
 
 
-// --- LÓGICA PRINCIPAL ACTUALIZADA ---
+// --- LÓGICA PRINCIPAL (Handler) - Sin cambios, solo pasa los nuevos datos ---
 export default async function handler(req, res) {
-  // Configuración de CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
+  if (req.method === 'OPTIONS') { return res.status(200).end(); }
+  if (req.method !== 'POST') { return res.status(405).json({ error: 'Method Not Allowed' }); }
 
   try {
     const { pillarUrl, clusterUrls } = req.body;
-
     if (!pillarUrl || !clusterUrls || clusterUrls.length === 0) {
       return res.status(400).json({ error: 'Faltan URLs para analizar.' });
     }
     
-    // Creamos una lista de todas las promesas de análisis que necesitamos ejecutar
     const promises = [
-        analyzePillarPage(pillarUrl, clusterUrls), // Analizar la pilar
-        ...clusterUrls.map(url => analyzeSatellitePage(url, pillarUrl)) // Analizar todas las satélites
+        analyzePillarPage(pillarUrl, clusterUrls),
+        ...clusterUrls.map(url => analyzeSatellitePage(url, pillarUrl))
     ];
 
-    // Ejecutamos todas las promesas en paralelo para máxima velocidad
     const results = await Promise.all(promises);
-
-    // Separamos los resultados
     const pillarAnalysis = results[0];
     const satelliteAnalysis = results.slice(1);
     
-    // Devolvemos la nueva estructura de datos enriquecida
-    return res.status(200).json({
-        pillarAnalysis,
-        satelliteAnalysis
-    });
-
+    return res.status(200).json({ pillarAnalysis, satelliteAnalysis });
   } catch (error) {
     return res.status(500).json({ error: `Error en el servidor: ${error.toString()}` });
   }
