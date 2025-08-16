@@ -3,6 +3,30 @@ const cheerio = require('cheerio');
 
 const STOP_WORDS = new Set(['de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'ha', 'me', 'si', 'sin', 'sobre', 'este', 'entre', 'es', 'son', 'ser', 'qué', 'cómo', 'tu', 'tus', 'muy', 'mi', 'mis', 'han']);
 
+// --- NUEVA FUNCIÓN: Detección de Intención de Búsqueda ---
+// Utiliza heurísticas (palabras clave) para sugerir una intención. No es infalible, pero sí muy útil.
+function detectIntent(text) {
+    const lowerText = text.toLowerCase();
+    
+    const transactionalKeywords = ['comprar', 'precio', 'oferta', 'descuento', 'contratar', 'presupuesto', 'tienda'];
+    if (transactionalKeywords.some(kw => lowerText.includes(kw))) {
+        return 'Transaccional';
+    }
+
+    const commercialKeywords = ['review', 'opinión', 'comparativa', 'vs', 'prueba', 'análisis', 'alternativas', 'mejor'];
+    if (commercialKeywords.some(kw => lowerText.includes(kw))) {
+        return 'Investigación Comercial';
+    }
+
+    const informationalKeywords = ['qué', 'cómo', 'guía', 'tutorial', 'lista', 'beneficios', 'ejemplos', 'aprender', 'consejos'];
+    if (informationalKeywords.some(kw => lowerText.includes(kw))) {
+        return 'Informativa';
+    }
+
+    // Por defecto, si no se encuentra una señal clara, se asume que es informativa.
+    return 'Informativa';
+}
+
 function analyzeText(text) {
     const wordCounts = {};
     const words = text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/);
@@ -25,48 +49,38 @@ async function getAndAnalyzePage(url) {
     const fullText = $('body').text().trim();
     const wordCount = fullText.split(/\s+/).length;
     const topKeywords = analyzeText(fullText);
-    return { $, title, h1, wordCount, topKeywords, responseTime };
+    const detectedIntent = detectIntent(title + ' ' + h1); // Analizamos título y h1 para la intención
+    return { $, title, h1, wordCount, topKeywords, responseTime, detectedIntent };
 }
 
-// --- FUNCIÓN DE ANÁLISIS MODIFICADA PARA LA FASE 5 ---
-// Ahora recibe un objeto de opciones para mayor claridad y flexibilidad
 async function analyzePage(url, options = {}) {
     const { isPillar = false, pillarUrl, allSatelliteUrls = [] } = options;
     try {
-        const { $, title, h1, wordCount, topKeywords, responseTime } = await getAndAnalyzePage(url);
-        const baseData = { url, title, h1, wordCount, topKeywords, responseTime, alerts: [] };
-
+        const { $, title, h1, wordCount, topKeywords, responseTime, detectedIntent } = await getAndAnalyzePage(url);
+        const baseData = { url, title, h1, wordCount, topKeywords, responseTime, detectedIntent, alerts: [] };
         if (isPillar) {
             const detectedTheme = h1 || title;
             const linksToSatellites = allSatelliteUrls.map(satelliteUrl => ({ url: satelliteUrl, found: $(`a[href="${satelliteUrl}"]`).length > 0 }));
             return { ...baseData, detectedTheme, linksToSatellites };
         } else {
-            // Análisis de enlace a la pilar
             let linkToPillar = false;
             let anchorText = null;
             $(`a[href="${pillarUrl}"]`).each((i, link) => {
                 linkToPillar = true;
                 anchorText = $(link).text().trim();
             });
-            
-            // --- NUEVA LÓGICA FASE 5: Enlazado inter-satélite ---
-            const otherSatellites = allSatelliteUrls.filter(u => u !== url); // Excluimos la URL actual
-            const interSatelliteLinks = otherSatellites.map(otherUrl => ({
-                url: otherUrl,
-                found: $(`a[href="${otherUrl}"]`).length > 0
-            }));
-
+            const otherSatellites = allSatelliteUrls.filter(u => u !== url);
+            const interSatelliteLinks = otherSatellites.map(otherUrl => ({ url: otherUrl, found: $(`a[href="${otherUrl}"]`).length > 0 }));
             return { ...baseData, linkToPillar, anchorText, interSatelliteLinks };
         }
     } catch (error) {
         console.error(`Error analizando ${url}:`, error.message);
-        const errorData = { url, title: '', h1: '', wordCount: 0, topKeywords: [], responseTime: -1, alerts: ["No se pudo acceder o analizar la URL."] };
-        if (isPillar) return { ...errorData, detectedTheme: 'Error', linksToSatellites: [] };
+        const errorData = { url, title: '', h1: '', wordCount: 0, topKeywords: [], responseTime: -1, detectedIntent: 'N/A', alerts: ["No se pudo acceder o analizar la URL."] };
+        if(isPillar) return { ...errorData, detectedTheme: 'Error', linksToSatellites: [] };
         return { ...errorData, linkToPillar: false, anchorText: null, interSatelliteLinks: [] };
     }
 }
 
-// --- LÓGICA PRINCIPAL (Handler) FINAL ---
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -78,13 +92,9 @@ module.exports = async (req, res) => {
     if (!pillarUrl || !clusterUrls || clusterUrls.length === 0) {
       return res.status(400).json({ error: 'Faltan URLs para analizar.' });
     }
-    
-    // Analizamos todas las páginas
     const pillarAnalysis = await analyzePage(pillarUrl, { isPillar: true, allSatelliteUrls: clusterUrls });
     const satellitePromises = clusterUrls.map(url => analyzePage(url, { isPillar: false, pillarUrl: pillarUrl, allSatelliteUrls: clusterUrls }));
     let satelliteAnalysis = await Promise.all(satellitePromises);
-
-    // Cálculo de Relevancia Temática
     const pillarKeywords = new Set(pillarAnalysis.topKeywords);
     satelliteAnalysis = satelliteAnalysis.map(sat => {
         if (sat.alerts.length > 0) return { ...sat, themeRelevance: 0 };
@@ -92,7 +102,6 @@ module.exports = async (req, res) => {
         const themeRelevance = Math.round((commonKeywords.length / Math.min(sat.topKeywords.length, 10)) * 100) || 0;
         return { ...sat, themeRelevance };
     });
-    
     return res.status(200).json({ pillarAnalysis, satelliteAnalysis });
   } catch (error) {
     return res.status(500).json({ error: `Error en el servidor: ${error.toString()}` });
