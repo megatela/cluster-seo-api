@@ -1,17 +1,40 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// --- Las funciones de análisis internas no cambian ---
 const STOP_WORDS = new Set(['de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'ha', 'me', 'si', 'sin', 'sobre', 'este', 'entre', 'es', 'son', 'ser', 'qué', 'cómo', 'tu', 'tus', 'muy', 'mi', 'mis', 'han']);
 
+// --- FUNCIÓN DE INTENCIÓN MEJORADA ---
 function detectIntent(text) {
     const lowerText = text.toLowerCase();
-    const transactionalKeywords = ['comprar', 'compra', 'comprá', 'precio', 'precios', 'oferta', 'ofertas', 'descuento', 'descuentos', 'contratar', 'presupuesto', 'tienda', 'adquirir', 'carrito', 'checkout', 'pagar', 'pago', 'tarifa', 'tarifas', 'vender', 'venta', 'ventas'];
-    if (transactionalKeywords.some(kw => lowerText.includes(kw))) { return 'Transaccional'; }
-    const commercialKeywords = ['review', 'opinión', 'opiniones', 'comparativa', 'comparar', 'vs', 'prueba', 'análisis', 'alternativas', 'mejor', 'mejores', 'top', 'ranking', 'reseña'];
-    if (commercialKeywords.some(kw => lowerText.includes(kw))) { return 'Investigación Comercial'; }
-    const informationalKeywords = ['qué', 'que es', 'cómo', 'como hacer', 'guía', 'tutorial', 'lista', 'beneficios', 'ejemplos', 'aprender', 'consejos', 'estrategias', 'información', 'documentación', 'investigar', 'significado', 'definición'];
-    if (informationalKeywords.some(kw => lowerText.includes(kw))) { return 'Informativa'; }
+    
+    // Lista ampliada con "adquiere" y más sinónimos para ser más robusta
+    const transactionalKeywords = [
+        'comprar', 'compra', 'comprá', 'precio', 'precios', 'oferta', 'ofertas',
+        'descuento', 'descuentos', 'contratar', 'presupuesto', 'tienda', 'adquirir',
+        'adquiere', 'carrito', 'checkout', 'pagar', 'pago', 'tarifa', 'tarifas', 
+        'vender', 'venta', 'ventas', 'consigue', 'obtén', 'inscríbete'
+    ];
+    if (transactionalKeywords.some(kw => lowerText.includes(kw))) {
+        return 'Transaccional';
+    }
+
+    const commercialKeywords = [
+        'review', 'opinión', 'opiniones', 'comparativa', 'comparar', 'vs', 'prueba',
+        'análisis', 'alternativas', 'mejor', 'mejores', 'top', 'ranking', 'reseña'
+    ];
+    if (commercialKeywords.some(kw => lowerText.includes(kw))) {
+        return 'Investigación Comercial';
+    }
+
+    const informationalKeywords = [
+        'qué', 'que es', 'cómo', 'como hacer', 'guía', 'tutorial', 'lista', 'beneficios',
+        'ejemplos', 'aprender', 'consejos', 'estrategias', 'información', 'documentación',
+        'investigar', 'significado', 'definición'
+    ];
+    if (informationalKeywords.some(kw => lowerText.includes(kw))) {
+        return 'Informativa';
+    }
+
     return 'Informativa';
 }
 
@@ -67,29 +90,13 @@ async function analyzePage(url, options = {}) {
     }
 }
 
-// --- ¡HANDLER REFORZADO PARA CORS! ---
 module.exports = async (req, res) => {
-  // Establecemos las cabeceras CORS en CADA respuesta para máxima compatibilidad
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); // Permitimos GET para la prueba del navegador
+  res.setHeader('Access-Control-Allow-Origin', '*'); 
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  // El navegador envía una petición "pre-vuelo" OPTIONS antes del POST.
-  // Debemos responderle con un OK para que proceda.
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-  
-  // Añadimos una prueba GET para el navegador que devuelve un OK
-  if (req.method === 'GET') {
-      return res.status(200).json({ status: "API is alive and well!" });
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
-  
-  // La lógica del POST sigue siendo la misma
+  if (req.method === 'OPTIONS') { return res.status(200).end(); }
+  if (req.method === 'GET') { return res.status(200).json({ status: "API is alive and well!" }); }
+  if (req.method !== 'POST') { return res.status(405).json({ error: 'Method Not Allowed' }); }
   try {
     const { pillarUrl, clusterUrls } = req.body;
     if (!pillarUrl || !clusterUrls || clusterUrls.length === 0) {
