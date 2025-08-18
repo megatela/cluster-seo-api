@@ -3,22 +3,33 @@ const cheerio = require('cheerio');
 
 const STOP_WORDS = new Set(['de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'ha', 'me', 'si', 'sin', 'sobre', 'este', 'entre', 'es', 'son', 'ser', 'qué', 'cómo', 'tu', 'tus', 'muy', 'mi', 'mis', 'han']);
 
-// --- NUEVA FUNCIÓN: Detección de Intención de Búsqueda ---
-// Utiliza heurísticas (palabras clave) para sugerir una intención. No es infalible, pero sí muy útil.
+// --- FUNCIÓN DE INTENCIÓN MEJORADA CON LISTAS DE KEYWORDS AMPLIADAS ---
 function detectIntent(text) {
     const lowerText = text.toLowerCase();
     
-    const transactionalKeywords = ['comprar', 'precio', 'oferta', 'descuento', 'contratar', 'presupuesto', 'tienda'];
+    // Lista ampliada para ser menos literal y capturar más variaciones
+    const transactionalKeywords = [
+        'comprar', 'compra', 'comprá', 'precio', 'precios', 'oferta', 'ofertas',
+        'descuento', 'descuentos', 'contratar', 'presupuesto', 'tienda', 'adquirir',
+        'carrito', 'checkout', 'pagar', 'pago', 'tarifa', 'tarifas', 'vender', 'venta', 'ventas'
+    ];
     if (transactionalKeywords.some(kw => lowerText.includes(kw))) {
         return 'Transaccional';
     }
 
-    const commercialKeywords = ['review', 'opinión', 'comparativa', 'vs', 'prueba', 'análisis', 'alternativas', 'mejor'];
+    const commercialKeywords = [
+        'review', 'opinión', 'opiniones', 'comparativa', 'comparar', 'vs', 'prueba',
+        'análisis', 'alternativas', 'mejor', 'mejores', 'top', 'ranking', 'reseña'
+    ];
     if (commercialKeywords.some(kw => lowerText.includes(kw))) {
         return 'Investigación Comercial';
     }
 
-    const informationalKeywords = ['qué', 'cómo', 'guía', 'tutorial', 'lista', 'beneficios', 'ejemplos', 'aprender', 'consejos'];
+    const informationalKeywords = [
+        'qué', 'que es', 'cómo', 'como hacer', 'guía', 'tutorial', 'lista', 'beneficios',
+        'ejemplos', 'aprender', 'consejos', 'estrategias', 'información', 'documentación',
+        'investigar', 'significado', 'definición'
+    ];
     if (informationalKeywords.some(kw => lowerText.includes(kw))) {
         return 'Informativa';
     }
@@ -49,7 +60,7 @@ async function getAndAnalyzePage(url) {
     const fullText = $('body').text().trim();
     const wordCount = fullText.split(/\s+/).length;
     const topKeywords = analyzeText(fullText);
-    const detectedIntent = detectIntent(title + ' ' + h1); // Analizamos título y h1 para la intención
+    const detectedIntent = detectIntent(title + ' ' + h1);
     return { $, title, h1, wordCount, topKeywords, responseTime, detectedIntent };
 }
 
@@ -81,8 +92,9 @@ async function analyzePage(url, options = {}) {
     }
 }
 
+// Usamos 'module.exports' para exportar la función, el método estándar.
 module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access--Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { return res.status(200).end(); }
