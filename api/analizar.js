@@ -1,55 +1,24 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
+// --- ¡NUEVO! Cabeceras para simular ser un navegador real ---
+const BROWSER_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+};
+
 const STOP_WORDS = new Set(['de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'ha', 'me', 'si', 'sin', 'sobre', 'este', 'entre', 'es', 'son', 'ser', 'qué', 'cómo', 'tu', 'tus', 'muy', 'mi', 'mis', 'han']);
 
-// --- FUNCIÓN DE INTENCIÓN MEJORADA ---
-function detectIntent(text) {
-    const lowerText = text.toLowerCase();
-    
-    // Lista ampliada con "adquiere" y más sinónimos para ser más robusta
-    const transactionalKeywords = [
-        'comprar', 'compra', 'comprá', 'precio', 'precios', 'oferta', 'ofertas',
-        'descuento', 'descuentos', 'contratar', 'presupuesto', 'tienda', 'adquirir',
-        'adquiere', 'carrito', 'checkout', 'pagar', 'pago', 'tarifa', 'tarifas', 
-        'vender', 'venta', 'ventas', 'consigue', 'obtén', 'inscríbete'
-    ];
-    if (transactionalKeywords.some(kw => lowerText.includes(kw))) {
-        return 'Transaccional';
-    }
+function detectIntent(text) { /* ... (sin cambios) ... */ }
+function analyzeText(text) { /* ... (sin cambios) ... */ }
 
-    const commercialKeywords = [
-        'review', 'opinión', 'opiniones', 'comparativa', 'comparar', 'vs', 'prueba',
-        'análisis', 'alternativas', 'mejor', 'mejores', 'top', 'ranking', 'reseña'
-    ];
-    if (commercialKeywords.some(kw => lowerText.includes(kw))) {
-        return 'Investigación Comercial';
-    }
-
-    const informationalKeywords = [
-        'qué', 'que es', 'cómo', 'como hacer', 'guía', 'tutorial', 'lista', 'beneficios',
-        'ejemplos', 'aprender', 'consejos', 'estrategias', 'información', 'documentación',
-        'investigar', 'significado', 'definición'
-    ];
-    if (informationalKeywords.some(kw => lowerText.includes(kw))) {
-        return 'Informativa';
-    }
-
-    return 'Informativa';
-}
-
-function analyzeText(text) {
-    const wordCounts = {};
-    const words = text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/);
-    for (const word of words) {
-        if (word && !STOP_WORDS.has(word) && word.length > 2) { wordCounts[word] = (wordCounts[word] || 0) + 1; }
-    }
-    return Object.entries(wordCounts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(entry => entry[0]);
-}
-
+// --- ¡ACTUALIZADO! getAndAnalyzePage ahora usa las cabeceras del navegador ---
 async function getAndAnalyzePage(url) {
     const startTime = Date.now();
-    const response = await axios.get(url, { timeout: 15000 });
+    // Añadimos { headers: BROWSER_HEADERS } a la petición de axios
+    const response = await axios.get(url, { headers: BROWSER_HEADERS, timeout: 15000 });
     const responseTime = Date.now() - startTime;
     const html = response.data;
     const $ = cheerio.load(html);
@@ -60,6 +29,28 @@ async function getAndAnalyzePage(url) {
     const topKeywords = analyzeText(fullText);
     const detectedIntent = detectIntent(title + ' ' + h1);
     return { $, title, h1, wordCount, topKeywords, responseTime, detectedIntent };
+}
+
+// El resto del código no necesita cambios, pero lo incluyo completo para que solo tengas que copiar y pegar.
+
+function detectIntent(text) {
+    const lowerText = text.toLowerCase();
+    const transactionalKeywords = ['comprar', 'compra', 'comprá', 'precio', 'precios', 'oferta', 'ofertas', 'descuento', 'descuentos', 'contratar', 'presupuesto', 'tienda', 'adquirir', 'adquiere', 'carrito', 'checkout', 'pagar', 'pago', 'tarifa', 'tarifas', 'vender', 'venta', 'ventas', 'consigue', 'obtén', 'inscríbete'];
+    if (transactionalKeywords.some(kw => lowerText.includes(kw))) { return 'Transaccional'; }
+    const commercialKeywords = ['review', 'opinión', 'opiniones', 'comparativa', 'comparar', 'vs', 'prueba', 'análisis', 'alternativas', 'mejor', 'mejores', 'top', 'ranking', 'reseña'];
+    if (commercialKeywords.some(kw => lowerText.includes(kw))) { return 'Investigación Comercial'; }
+    const informationalKeywords = ['qué', 'que es', 'cómo', 'como hacer', 'guía', 'tutorial', 'lista', 'beneficios', 'ejemplos', 'aprender', 'consejos', 'estrategias', 'información', 'documentación', 'investigar', 'significado', 'definición'];
+    if (informationalKeywords.some(kw => lowerText.includes(kw))) { return 'Informativa'; }
+    return 'Informativa';
+}
+
+function analyzeText(text) {
+    const wordCounts = {};
+    const words = text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/);
+    for (const word of words) {
+        if (word && !STOP_WORDS.has(word) && word.length > 2) { wordCounts[word] = (wordCounts[word] || 0) + 1; }
+    }
+    return Object.entries(wordCounts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(entry => entry[0]);
 }
 
 async function analyzePage(url, options = {}) {
@@ -84,7 +75,7 @@ async function analyzePage(url, options = {}) {
         }
     } catch (error) {
         console.error(`Error analizando ${url}:`, error.message);
-        const errorData = { url, title: '', h1: '', wordCount: 0, topKeywords: [], responseTime: -1, detectedIntent: 'N/A', alerts: ["No se pudo acceder o analizar la URL."] };
+        const errorData = { url, title: '', h1: '', wordCount: 0, topKeywords: [], responseTime: -1, detectedIntent: 'N/A', alerts: [error.message] };
         if(isPillar) return { ...errorData, detectedTheme: 'Error', linksToSatellites: [] };
         return { ...errorData, linkToPillar: false, anchorText: null, interSatelliteLinks: [] };
     }
