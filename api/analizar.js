@@ -1,9 +1,9 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// Añadimos 'title' a la lista de stop words como una capa extra de seguridad.
 const STOP_WORDS = new Set(['de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'ha', 'me', 'si', 'sin', 'sobre', 'este', 'entre', 'es', 'son', 'ser', 'qué', 'cómo', 'tu', 'tus', 'muy', 'mi', 'mis', 'han', 'title']);
 
+// --- FUNCIÓN DE INTENCIÓN (sin cambios) ---
 function detectIntent(text) {
     const lowerText = text.toLowerCase();
     const transactionalKeywords = ['comprar', 'compra', 'comprá', 'precio', 'precios', 'oferta', 'ofertas', 'descuento', 'descuentos', 'contratar', 'presupuesto', 'tienda', 'adquirir', 'adquiere', 'carrito', 'checkout', 'pagar', 'pago', 'tarifa', 'tarifas', 'vender', 'venta', 'ventas', 'consigue', 'obtén', 'inscríbete'];
@@ -15,18 +15,26 @@ function detectIntent(text) {
     return 'Informativa';
 }
 
+// --- FUNCIÓN DE ANÁLISIS DE TEXTO MEJORADA ---
 function analyzeText(text) {
     const wordCounts = {};
-    const words = text.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/);
+    
+    // 1. Pone todo en minúsculas.
+    // 2. Reemplaza cualquier carácter que NO sea una letra, número O BARRA, por un espacio.
+    // 3. Divide el texto en palabras.
+    const words = text.toLowerCase().replace(/[^\w\s\/]/g, ' ').split(/\s+/);
+
     for (const word of words) {
-        if (word && !STOP_WORDS.has(word) && word.length > 2) { wordCounts[word] = (wordCounts[word] || 0) + 1; }
+        // Ahora, palabras como "ot/ics" se mantienen intactas.
+        if (word && !STOP_WORDS.has(word) && word.length > 2) {
+            wordCounts[word] = (wordCounts[word] || 0) + 1;
+        }
     }
     return Object.entries(wordCounts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(entry => entry[0]);
 }
 
 async function getAndAnalyzePage(url) {
     const startTime = Date.now();
-    // --- ¡AQUÍ ESTABA EL ERROR! Corregido para no incluir una cabecera vacía ---
     const response = await axios.get(url, { timeout: 15000 });
     const responseTime = Date.now() - startTime;
     const html = response.data;
