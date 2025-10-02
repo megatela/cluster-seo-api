@@ -1,37 +1,35 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// --- ¡NUEVO! Cabeceras para simular ser un navegador real ---
-const BROWSER_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Accept-Encoding': 'gzip, deflate, br',
-};
-
-const STOP_WORDS = new Set(['de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'ha', 'me', 'si', 'sin', 'sobre', 'este', 'entre', 'es', 'son', 'ser', 'qué', 'cómo', 'tu', 'tus', 'muy', 'mi', 'mis', 'han']);
+const STOP_WORDS = new Set(['de', 'la', 'que', 'el', 'en', 'y', 'a', 'los', 'del', 'se', 'las', 'por', 'un', 'para', 'con', 'no', 'una', 'su', 'al', 'lo', 'como', 'más', 'pero', 'sus', 'le', 'ya', 'o', 'este', 'ha', 'me', 'si', 'sin', 'sobre', 'este', 'entre', 'es', 'son', 'ser', 'qué', 'cómo', 'tu', 'tus', 'muy', 'mi', 'mis', 'han', 'title']);
 
 function detectIntent(text) { /* ... (sin cambios) ... */ }
 function analyzeText(text) { /* ... (sin cambios) ... */ }
 
-// --- ¡ACTUALIZADO! getAndAnalyzePage ahora usa las cabeceras del navegador ---
+// --- FUNCIÓN DE ANÁLISIS MEJORADA (getAndAnalyzePage) ---
 async function getAndAnalyzePage(url) {
     const startTime = Date.now();
-    // Añadimos { headers: BROWSER_HEADERS } a la petición de axios
-    const response = await axios.get(url, { headers: BROWSER_HEADERS, timeout: 15000 });
+    const response = await axios.get(url, { headers: { /* Headers del Navegador si son necesarios */ }, timeout: 15000 });
     const responseTime = Date.now() - startTime;
     const html = response.data;
     const $ = cheerio.load(html);
+    
+    // --- ¡AQUÍ ESTÁ LA MEJORA! ---
+    // Clonamos el cuerpo y eliminamos los elementos que no queremos analizar (scripts, estilos, etc.)
+    const content = $('body').clone();
+    content.find('script, style, noscript, iframe, footer, header, nav').remove();
+
     const title = $('title').text().trim();
     const h1 = $('h1').first().text().trim();
-    const fullText = $('body').text().trim();
+    const fullText = content.text().trim(); // Usamos el texto del contenido limpio
     const wordCount = fullText.split(/\s+/).length;
     const topKeywords = analyzeText(fullText);
     const detectedIntent = detectIntent(title + ' ' + h1);
+
     return { $, title, h1, wordCount, topKeywords, responseTime, detectedIntent };
 }
 
-// El resto del código no necesita cambios, pero lo incluyo completo para que solo tengas que copiar y pegar.
+// El resto del código no necesita cambios, pero lo incluyo completo.
 
 function detectIntent(text) {
     const lowerText = text.toLowerCase();
@@ -75,7 +73,7 @@ async function analyzePage(url, options = {}) {
         }
     } catch (error) {
         console.error(`Error analizando ${url}:`, error.message);
-        const errorData = { url, title: '', h1: '', wordCount: 0, topKeywords: [], responseTime: -1, detectedIntent: 'N/A', alerts: [error.message] };
+        const errorData = { url, title: '', h1: '', wordCount: 0, topKeywords: [], responseTime: -1, detectedIntent: 'N/A', alerts: ["No se pudo acceder o analizar la URL."] };
         if(isPillar) return { ...errorData, detectedTheme: 'Error', linksToSatellites: [] };
         return { ...errorData, linkToPillar: false, anchorText: null, interSatelliteLinks: [] };
     }
@@ -105,6 +103,4 @@ module.exports = async (req, res) => {
     });
     return res.status(200).json({ pillarAnalysis, satelliteAnalysis });
   } catch (error) {
-    return res.status(500).json({ error: `Error en el servidor: ${error.toString()}` });
-  }
-};
+    return res.s
