@@ -14,15 +14,9 @@ function detectIntent(text) {
     return 'Informativa';
 }
 
-// --- ¡FUNCIÓN DE ANÁLISIS DE TEXTO MEJORADA CON SOPORTE UNICODE! ---
 function analyzeText(text) {
     const wordCounts = {};
-    
-    // 1. Pone todo en minúsculas.
-    // 2. Reemplaza cualquier carácter que NO sea una letra (incluyendo acentos y ñ), número, espacio O BARRA, por un espacio.
-    // La 'u' al final activa el modo Unicode.
     const words = text.toLowerCase().replace(/[^\p{L}\p{N}\s\/]/gu, ' ').split(/\s+/);
-
     for (const word of words) {
         if (word && !STOP_WORDS.has(word) && word.length > 2) {
             wordCounts[word] = (wordCounts[word] || 0) + 1;
@@ -73,9 +67,11 @@ async function analyzePage(url, options = {}) {
         }
     } catch (error) {
         console.error(`Error analizando ${url}:`, error.message);
+        // --- ¡AQUÍ ESTABA EL ERROR! CORREGIDO ---
+        // Se ha reemplazado 'baseData' por 'errorData' para que la variable esté definida.
         const errorData = { url, title: '', h1: '', wordCount: 0, topKeywords: [], responseTime: -1, detectedIntent: 'N/A', alerts: ["No se pudo acceder o analizar la URL."] };
-        if(isPillar) return { ...baseData, ...errorData, detectedTheme: 'Error', linksToSatellites: [] };
-        return { ...baseData, ...errorData, linkToPillar: false, anchorText: null, interSatelliteLinks: [] };
+        if(isPillar) return { ...errorData, detectedTheme: 'Error', linksToSatellites: [] };
+        return { ...errorData, linkToPillar: false, anchorText: null, interSatelliteLinks: [] };
     }
 }
 
